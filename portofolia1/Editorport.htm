@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Tree Editor v3</title>
+
+<style>
+body { font-family: Arial; margin: 10px; }
+
+.container {
+  display: flex;
+  gap: 10px;
+}
+
+.box {
+  flex: 1;
+}
+
+textarea {
+  width: 100%;
+  height: 250px;
+  font-family: monospace;
+}
+
+#treeView {
+  border: 1px solid #ccc;
+  padding: 10px;
+  min-height: 250px;
+}
+
+button {
+  margin: 3px;
+  padding: 5px;
+  cursor: pointer;
+}
+
+.node {
+  margin: 3px 0;
+}
+</style>
+</head>
+
+<body>
+
+<h2>Tree Editor v3</h2>
+
+<div class="container">
+
+  <!-- INPUT -->
+  <div class="box">
+    <h3>INPUT</h3>
+    <textarea id="input"></textarea>
+    <button onclick="load()">Load</button>
+  </div>
+
+  <!-- TREE VIEW -->
+  <div class="box">
+    <h3>TREE</h3>
+    <div id="treeView"></div>
+  </div>
+
+  <!-- OUTPUT -->
+  <div class="box">
+    <h3>OUTPUT</h3>
+    <textarea id="output"></textarea>
+    <button onclick="exportTree()">Export</button>
+  </div>
+
+</div>
+
+<script>
+
+// =====================
+// STATE
+// =====================
+let TREE = null;
+let path = [];
+
+// =====================
+// LOAD
+// =====================
+function load() {
+  try {
+    let raw = document.getElementById("input").value;
+    raw = raw.replace("window.TREE =", "");
+    TREE = eval(raw);
+
+    path = [];
+    render();
+    exportTree();
+  } catch (e) {
+    alert("Load failed");
+  }
+}
+
+// =====================
+// ROOT
+// =====================
+function getRoot() {
+  return TREE?.[1] || {};
+}
+
+// =====================
+// RESOLVE NODE
+// =====================
+function resolve(path) {
+  let node = getRoot();
+
+  for (let key of path) {
+    if (!node || typeof node !== "object") return null;
+
+    node = node[key];
+    if (!node) return null;
+
+    if (node.items) node = node.items;
+  }
+
+  return node;
+}
+
+// =====================
+// RENDER TREE
+// =====================
+function render() {
+  const view = document.getElementById("treeView");
+  view.innerHTML = "";
+
+  // breadcrumb
+  const rootBtn = mkBtn("ROOT", () => {
+    path = [];
+    render();
+  });
+  view.appendChild(rootBtn);
+
+  path.forEach((p, i) => {
+    view.appendChild(mkBtn(" > " + p, () => {
+      path = path.slice(0, i + 1);
+      render();
+    }));
+  });
+
+  view.appendChild(document.createElement("hr"));
+
+  let node = path.length === 0 ? getRoot() : resolve(path);
+
+  if (!node) return;
+
+  let items = node.items || node;
+
+  // show children
+  if (typeof items === "object") {
+    for (let key in items) {
+      const wrap = document.createElement("div");
+      wrap.className = "node";
+
+      // OPEN
+      wrap.appendChild(mkBtn(key, () => {
+        path.push(key);
+        render();
+      }));
+
+      // EDIT
+      wrap.appendChild(mkBtn("✏️", () => {
+        let newKey = prompt("Rename key:", key);
+        if (!newKey) return;
+
+        items[newKey] = items[key];
+        delete items[key];
+        render();
+        exportTree();
+      }));
+
+      // DELETE
+      wrap.appendChild(mkBtn("🗑", () => {
+        if (confirm("Delete " + key + "?")) {
+          delete items[key];
+          render();
+          exportTree();
+        }
+      }));
+
+      view.appendChild(wrap);
+    }
+  }
+
+  // ADD NODE
+  const addBtn = mkBtn("➕ Add Node", () => {
+    let name = prompt("Node name:");
+    if (!name) return;
+
+    if (!node.items) node.items = {};
+    node.items[name] = { text: "", items: {} };
+
+    render();
+    exportTree();
+  });
+
+  view.appendChild(document.createElement("hr"));
+  view.appendChild(addBtn);
+
+  // EDIT TEXT
+  const current = resolve(path);
+  if (current) {
+    const textBtn = mkBtn("✏️ Edit text", () => {
+      let t = prompt("text:", current.text || "");
+      current.text = t;
+
+      render();
+      exportTree();
+    });
+
+    view.appendChild(textBtn);
+
+    // ADD ITEMS FIELD
+    const itemsBtn = mkBtn("➕ Add items object", () => {
+      if (!current.items) current.items = {};
+      render();
+      exportTree();
+    });
+
+    view.appendChild(itemsBtn);
+  }
+}
+
+// =====================
+// EXPORT
+// =====================
+function exportTree() {
+  document.getElementById("output").value =
+    "window.TREE = " + JSON.stringify(TREE, null, 2);
+}
+
+// =====================
+// HELPERS
+// =====================
+function mkBtn(text, fn) {
+  const b = document.createElement("button");
+  b.textContent = text;
+  b.onclick = fn;
+  return b;
+}
+
+</script>
+
+</body>
+</html>
