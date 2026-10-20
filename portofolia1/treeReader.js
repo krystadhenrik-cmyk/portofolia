@@ -26,10 +26,10 @@
     sm: "min(100%, 320px)",
     md: "min(100%, 560px)",
     lg: "min(100%, 760px)",
-    "screen-full": "min(100%, 96vw)",
-    "screen-half": "min(100%, 50vw)",
-    "screen-third": "min(100%, 33vw)",
-    "screen-quarter": "min(100%, 25vw)"
+    "screen-full": "100%",
+    "screen-half": "min(100%, 50%)",
+    "screen-third": "min(100%, 33.333%)",
+    "screen-quarter": "min(100%, 25%)"
   };
 
   const FONT_SIZE_ALIASES = {

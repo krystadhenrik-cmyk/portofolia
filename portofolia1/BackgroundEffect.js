@@ -633,6 +633,9 @@ function syncDocumentHeight() {
 }
 
 window.addEventListener("resize", resize, { passive: true });
+window.addEventListener("portfolio:layout-sync", () => {
+    syncDocumentHeight();
+}, { passive: true });
 window.addEventListener("load", () => {
     setTimeout(syncDocumentHeight, 120);
     setTimeout(syncDocumentHeight, 800);

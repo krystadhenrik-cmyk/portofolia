@@ -35,6 +35,14 @@ const MC_CURSOR_SYSTEM = (() => {
     const PERF_WARN_MS = 5;
     const PERF_CRITICAL_MS = 10;
 
+    const FOLLOW_BASE = 0.2;
+    const FOLLOW_MAX = 0.82;
+    const FOLLOW_DIST_SOFT = 42;
+    const FOLLOW_DIST_FAR = 120;
+    const FOLLOW_DIST_CLAMP = 200;
+    const FOLLOW_SPEED_GAIN = 1.85;
+    const FOLLOW_SPEED_MULT_MAX = 4.2;
+
     const particles = [];
     const particlePool = [];
     let particleLayer = null;
@@ -42,6 +50,10 @@ const MC_CURSOR_SYSTEM = (() => {
 
     function getCombinedLoad() {
         return Math.max(perfEma, window.__fxTileLoad || 0);
+    }
+
+    function getSparkLoad() {
+        return perfEma;
     }
 
     function getParticleCap() {
@@ -91,6 +103,63 @@ const MC_CURSOR_SYSTEM = (() => {
 
     function applyWandTransform() {
         el.style.transform = `translate3d(${posX}px, ${posY}px, 0) rotate(${rotation}deg)`;
+    }
+
+    function getDistanceFollowFactor(distPx) {
+        if (distPx <= FOLLOW_DIST_SOFT) {
+            return FOLLOW_BASE;
+        }
+
+        if (distPx >= FOLLOW_DIST_FAR) {
+            return FOLLOW_MAX;
+        }
+
+        const t = (distPx - FOLLOW_DIST_SOFT) / (FOLLOW_DIST_FAR - FOLLOW_DIST_SOFT);
+        const eased = t * t;
+        return FOLLOW_BASE + (FOLLOW_MAX - FOLLOW_BASE) * eased;
+    }
+
+    function getSpeedFollowMultiplier(speedPxPerMs) {
+        if (speedPxPerMs <= 0) {
+            return 1;
+        }
+
+        const mult = 1 + speedPxPerMs * FOLLOW_SPEED_GAIN;
+        return Math.min(FOLLOW_SPEED_MULT_MAX, mult);
+    }
+
+    function getFollowFactor(distPx, speedPxPerMs) {
+        const distanceFactor = getDistanceFollowFactor(distPx);
+        const distanceBoost = Math.max(0, distanceFactor - FOLLOW_BASE);
+        const speedMult = getSpeedFollowMultiplier(speedPxPerMs);
+
+        return FOLLOW_BASE + distanceBoost * speedMult;
+    }
+
+    function stepWandTowardTarget(frameDt) {
+        const dx = targetX - posX;
+        const dy = targetY - posY;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist < 0.35) {
+            posX = targetX;
+            posY = targetY;
+            return;
+        }
+
+        const speedMult = getSpeedFollowMultiplier(mouseSpeed);
+        const clampDist = FOLLOW_DIST_CLAMP / Math.max(1, speedMult * 0.55);
+
+        if (dist >= clampDist) {
+            posX = targetX;
+            posY = targetY;
+            return;
+        }
+
+        const dtScale = Math.min(frameDt / 16, 2.2);
+        const follow = Math.min(1, getFollowFactor(dist, mouseSpeed) * dtScale);
+        posX += dx * follow;
+        posY += dy * follow;
     }
 
     function createParticleElement() {
@@ -145,15 +214,15 @@ const MC_CURSOR_SYSTEM = (() => {
 
     function updateParticles() {
         const load = getCombinedLoad();
-        if (load > PERF_CRITICAL_MS + 6 && particles.length > 12) {
-            return;
-        }
+        const throttleMotion = load > PERF_CRITICAL_MS + 6 && particles.length > 12;
 
         for (let i = particles.length - 1; i >= 0; i--) {
             const p = particles[i];
-            p.x += p.vx;
-            p.y += p.vy;
-            p.vy += 0.12;
+            if (!throttleMotion) {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.12;
+            }
             p.ttl--;
 
             if (p.ttl <= 0) {
@@ -163,8 +232,10 @@ const MC_CURSOR_SYSTEM = (() => {
                 continue;
             }
 
-            p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
-            p.el.style.opacity = String(p.ttl / PARTICLE_TTL);
+            if (!throttleMotion) {
+                p.el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
+                p.el.style.opacity = String(p.ttl / PARTICLE_TTL);
+            }
         }
     }
 
@@ -211,15 +282,15 @@ const MC_CURSOR_SYSTEM = (() => {
         lastFrameTime = now;
         const sparkT0 = performance.now();
 
-        posX += (targetX - posX) * 0.15;
-        posY += (targetY - posY) * 0.15;
+        stepWandTowardTarget(frameDt);
         applyWandTransform();
 
         const tip = getSparkOrigin();
-        const load = getCombinedLoad();
-        const sparksAllowed = load <= PERF_CRITICAL_MS + 4;
+        const sparkLoad = getSparkLoad();
+        const combinedLoad = getCombinedLoad();
+        const sparksAllowed = sparkLoad <= PERF_CRITICAL_MS + 8;
 
-        if (lastTipX != null && mouseReady && sparksAllowed) {
+        if (lastTipX != null && mouseReady) {
             if (now - lastMoveTime > SPARK_SPEED_DECAY_MS) {
                 mouseSpeed = 0;
             }
@@ -253,13 +324,13 @@ const MC_CURSOR_SYSTEM = (() => {
 
             const canSpark = sparksArmed && (fastMove || (graceRemaining > 0 && slowMove));
             let spawnInterval = sparksArmed && !fastMove ? SPAWN_INTERVAL_GRACE_MS : SPAWN_INTERVAL_MS;
-            if (load > PERF_CRITICAL_MS) {
+            if (combinedLoad > PERF_CRITICAL_MS) {
                 spawnInterval *= 3;
-            } else if (load > PERF_WARN_MS) {
+            } else if (combinedLoad > PERF_WARN_MS) {
                 spawnInterval *= 2;
             }
 
-            if (canSpark && now - lastSpawnTime >= spawnInterval) {
+            if (canSpark && sparksAllowed && now - lastSpawnTime >= spawnInterval) {
                 MC_spawnParticle(tip.x, tip.y, dx * 0.08, dy * 0.08);
                 lastSpawnTime = now;
             }
@@ -272,6 +343,21 @@ const MC_CURSOR_SYSTEM = (() => {
 
         reportPerf(performance.now() - sparkT0);
         requestAnimationFrame(MC_updateLoop);
+    }
+
+    function onViewChange() {
+        while (particles.length) {
+            releaseParticleElement(particles[particles.length - 1].el);
+            particles.pop();
+        }
+
+        sparksArmed = false;
+        graceRemaining = 0;
+        lastSpawnTime = 0;
+        mouseSpeed = 0;
+        perfEma *= 0.25;
+        lastTipX = null;
+        lastTipY = null;
     }
 
     function init() {
@@ -311,7 +397,7 @@ const MC_CURSOR_SYSTEM = (() => {
         requestAnimationFrame(MC_updateLoop);
     }
 
-    return { init };
+    return { init, onViewChange };
 })();
 
 MC_CURSOR_SYSTEM.init();

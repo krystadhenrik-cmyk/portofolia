@@ -20,7 +20,72 @@ const cards = document.querySelectorAll(".card");
 
 
 let history = [];
+let mainScrollY = 0;
+let heroScrollLocked = true;
 
+const scrollUnlockBtn = document.getElementById("scrollUnlockBtn");
+
+function unlockPageScroll() {
+  if (!heroScrollLocked) {
+    return;
+  }
+
+  heroScrollLocked = false;
+  document.body.classList.remove("heroGate");
+  window.dispatchEvent(new Event("resize"));
+}
+
+function restoreMainScrollAfterOverlay() {
+  document.body.classList.remove("mainScrollLocked");
+  document.body.style.top = "";
+
+  if (heroScrollLocked) {
+    document.body.classList.add("heroGate");
+    window.scrollTo(0, 0);
+  } else {
+    window.scrollTo(0, mainScrollY);
+  }
+}
+
+scrollUnlockBtn?.addEventListener("click", () => {
+  unlockPageScroll();
+
+  const nextSection = document.querySelector(".hero + .section");
+  if (nextSection) {
+    nextSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+});
+
+function lockMainScroll() {
+  mainScrollY = window.scrollY || 0;
+  document.body.classList.add("mainScrollLocked");
+  document.body.style.top = `-${mainScrollY}px`;
+  categoryPage.scrollTop = 0;
+}
+
+function showCategoryPage() {
+  categoryPage.classList.add("active");
+}
+
+function closeCategoryPage() {
+  categoryPage.classList.remove("active");
+  categoryPage.scrollTop = 0;
+
+  restoreMainScrollAfterOverlay();
+
+  smallGrid.innerHTML = "";
+  smallGrid.style.position = "";
+  title.innerText = "Kategori";
+
+  const trail = document.getElementById("breadcrumbTrail");
+  if (trail) {
+    trail.innerHTML = "";
+    trail.style.display = "none";
+  }
+
+  history = [];
+  window.dispatchEvent(new Event("resize"));
+}
 
 /* glow follow */
 document.addEventListener("mousemove", e => {
@@ -32,6 +97,9 @@ document.addEventListener("mousemove", e => {
 });
 
 function loadFinal(list, titleText) {
+  window.MC_CURSOR_SYSTEM?.onViewChange?.();
+
+  categoryPage.scrollTop = 0;
   smallGrid.innerHTML = "";
   title.innerText = titleText;
 
@@ -56,9 +124,9 @@ NodesTree[0].forEach(node => {
   card.onclick = () => {
     if (NodesTree[1][node.key]) {
       history = [];
+      lockMainScroll();
       loadLevel(NodesTree[1][node.key], node.key, "18px");
-      categoryPage.classList.add("active");
-      document.body.style.overflow = "hidden";
+      showCategoryPage();
     }
   };
 
@@ -71,14 +139,15 @@ cards.forEach(card => {
   card.onclick = () => {
     if (NodesTree[1][name]) {
       history = [];
+      lockMainScroll();
       loadLevel(NodesTree[1][name], name, "24px");
-      categoryPage.classList.add("active");
-      document.body.style.overflow = "hidden";
+      showCategoryPage();
     }
 
     if (name === "Om meg") {
-      categoryPage.classList.add("active");
-      document.body.style.overflow = "hidden";
+      history = [];
+      lockMainScroll();
+      window.MC_CURSOR_SYSTEM?.onViewChange?.();
       smallGrid.innerHTML = "";
       title.innerText = "Om meg";
 
@@ -87,6 +156,7 @@ cards.forEach(card => {
           Jeg bygger systemer som kombinerer simulering, logikk og struktur.
         </p>
       `;
+      showCategoryPage();
     }
   };
 });
@@ -99,14 +169,8 @@ backBtn.onclick = () => {
   if (prev) {
     loadLevel(prev.node, prev.title, prev.fontSize);
   } else {
-    categoryPage.classList.remove("active");
-    document.body.style.overflow = "auto";
-
-    const trail = document.getElementById("breadcrumbTrail");
-    if (trail) {
-      trail.innerHTML = "";
-      trail.style.display = "none";
-    }
+    window.MC_CURSOR_SYSTEM?.onViewChange?.();
+    closeCategoryPage();
   }
 };
 
